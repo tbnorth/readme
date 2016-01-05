@@ -147,7 +147,7 @@ def add_ignore(db, to_ignore):
 def write_db(db, filename, ignored_first=False):
     
     if isinstance(filename, str):
-        out = open(filename+".new", 'w')
+        out = open(filename+".new", 'wb')
     else:
         out = filename
     writer = csv.writer(out)
