@@ -1,0 +1,288 @@
+#!/usr/bin/env python
+"""
+file name / pattern
+    long text describing
+    the file(s) (yyyy-mm-dd)
+
+(unimportant / temporary files)
+    misc file 1
+    misc file 2
+
+Terry Brown, Terry_N_Brown@yahoo.com, Tue Nov 26 10:11:15 2013
+"""
+
+import argparse
+import csv
+import fnmatch
+import os
+import readline
+import sys
+
+from textwrap import wrap
+
+if sys.version_info[0] > 2:
+    raw_input = input
+
+def make_parser():
+     
+     parser = argparse.ArgumentParser(
+         description="""Maintain file describing directory contents""",
+         formatter_class=argparse.ArgumentDefaultsHelpFormatter
+     )
+     
+     parser.add_argument('-e', "--edit", action='store_true',
+         help="Use $EDITOR to view/edit description, or edit the "
+              "whole description file if no pattern provided"
+     )
+     parser.add_argument('-l', "--list", action='store_true',
+         help="List files described / ignored / unknown"
+     )
+     parser.add_argument('-i', "--ignore", action='store_true',
+         help="Ignore the listed patterns"
+     )
+     parser.add_argument('-a', "--all", action='store_true',
+         help="Ask for descriptions of all unknowns"
+     )
+    
+     parser.add_argument('pattern', type=str, nargs='*',
+         help="Pattern(s) (files) to describe / ignore"
+     )
+
+     return parser
+ 
+ 
+
+filename = "00_FILE_DESCRIPTIONS.txt"
+ignore_header = (
+    '(no description needed)',          # ignore_header[0] is used by default
+    '(unimportant / temporary files)',  # misleading legacy version
+)
+
+def sorted_patterns(patterns):
+    return sorted(
+        patterns, 
+        key=lambda x: str(any('*' in i for i in x))+list(x)[0]
+    )
+
+def update_db(db, filename):
+
+    state = 'start'
+    patterns = []
+    text = []
+    
+    for line in open(filename, 'rU'):
+        if line[0] not in ' \t':
+            if text:
+                db['patterns'][frozenset(patterns)] = text
+                text = []
+                patterns = []
+            patterns.extend(next(csv.reader([line])))
+        else:
+            text.append(line.strip())
+    
+    if text:
+        db['patterns'][frozenset(patterns)] = text
+    
+    for ih in ignore_header:
+        if frozenset([ih]) in db['patterns']:
+            db['ignored'] = db['patterns'][frozenset([ih])]
+            del db['patterns'][frozenset([ih])]
+        
+def show_counts(db, show_list=False):
+        
+    known = []
+    unknown = []
+    ignored = []
+    for entry in os.listdir('.'):
+        matched = False
+        for patterns in sorted_patterns(db['patterns']):
+            for pattern in patterns:
+                if fnmatch.fnmatch(entry, pattern):
+                    matched = True
+                    break
+            if matched:
+                break
+        if matched:
+            known += [entry]
+        if (entry in db['ignored'] or
+            any([fnmatch.fnmatch(entry, p) for p in db['ignored']])):
+            if matched:
+                print("'%s' described and ignored" % entry)
+            ignored +=  [entry]
+            matched = True
+        if not matched:
+            unknown +=[entry]
+            
+    if show_list:
+        print("Described:")
+        for i in known:
+            print("  %s"%i)
+        print("Ignored/Well known:")
+        for i in ignored:
+            print("  %s"%i)
+        print("Unknown:")
+        for i in unknown:
+            print("  %s"%i)
+    
+    print("%d Described, %d Ignored/Well known, %d Unknown" % (
+        len(known), len(ignored), len(unknown)))
+        
+    return known, ignored, unknown
+
+def add_ignore(db, to_ignore):
+    for i in to_ignore:
+        if i not in db['ignored']:
+            db['ignored'].append(i)
+
+def write_db(db, filename, ignored_first=False):
+    
+    if isinstance(filename, str):
+        out = open(filename+".new", 'w')
+    else:
+        out = filename
+    writer = csv.writer(out)
+    
+    def show_patterns():
+        for k in sorted_patterns(db['patterns']):
+            writer.writerow(sorted(k))
+            for line in db['patterns'][k]:
+                out.write("  %s\r\n"%line)
+            out.write("\r\n")
+    
+    def show_ignored():
+        if db['ignored']:
+            out.write("%s\r\n"%ignore_header[0])
+            for line in sorted(db['ignored']):
+                out.write("  %s\r\n"%line)
+            out.write("\r\n")
+            
+    if ignored_first:
+        show_ignored()
+        show_patterns()
+    else:
+        show_patterns()
+        show_ignored()
+        
+    if isinstance(filename, str):
+        out.close()
+        if os.path.exists(filename):
+            os.rename(filename, filename+".old")
+        os.rename(filename+".new", filename)
+        if os.path.exists(filename+".old"):
+            os.unlink(filename+".old")
+
+def describe(db, entry):
+    """
+    entry is a *list* of patterns from command line
+    """
+    matched = None
+    for patterns in db['patterns']:
+        
+        if frozenset(entry) in patterns:
+            matched = patterns
+            break
+        
+        for pattern in patterns:
+            if fnmatch.fnmatch(entry[0], pattern):
+                matched = patterns
+                break
+        if matched:
+            break
+    
+    out = sys.stdout
+    
+    if matched:
+        csv.writer(sys.stdout).writerow(sorted(matched))
+        for line in db['patterns'][matched]:
+            out.write("  %s\n"%line)   
+    else:
+        out.write("Not described\n")
+    out.write("\n")
+    
+    out.write("Enter new / updated description, two blank lines to end\n")
+    new = []
+    while new[-2:] != ['', '']:
+        new.append(raw_input())
+        
+    while new and not new[0].strip():
+        del new[0]
+    while new and not new[-1].strip():
+        del new[-1]
+    
+    if new:
+        # FIXME - update existing hit / add new
+        db['patterns'][frozenset(entry)] = [i.strip() for i in new]
+        return True
+        
+    return False  # no need to write db, not updated
+
+def main():
+    
+    opt = make_parser().parse_args()
+    
+    db = {
+        'patterns': {},
+        'ignored': [],
+    }
+    
+    if os.path.exists(filename):
+        update_db(db, filename)
+        
+    if not opt.pattern and opt.edit:
+        os.system('%s "%s"' % (os.getenv('EDITOR'), filename))
+        return
+        
+    if not opt.pattern:
+        write_db(db, sys.stdout, ignored_first=True)
+        known, ignored, unknown = show_counts(db, show_list=opt.list)
+        
+        if opt.all:
+            update = False
+            for i in unknown:
+                done = False
+                while not done:
+                    print(i)
+                    print("  d: describe")
+                    print("  q: save existing and quit describing")
+                    print("  !: abort - forget changes and quit describing")
+                    print("  i: add to ignore list")
+                    print("  s: skip")
+                    print("  l: look at '%s'" % i)
+                    choice = raw_input("Choice: ")
+                    if choice == 'd':
+                        update = describe(db, [i]) or update
+                        done = True
+                    elif choice in 'q!':
+                        done = True
+                    elif choice in 's':
+                        done = True
+                    elif choice == 'l':
+                        if os.path.isdir(i):
+                            for f in os.listdir(i):
+                                print(f)
+                        else:
+                            os.system('less "%s"' % i)
+                    elif choice == 'i':
+                        add_ignore(db, [i])
+                        update = True
+                        done = True
+                if choice == '!':
+                    update = False
+                if choice in 'q!':
+                    break
+            if update:
+                write_db(db, filename)
+        return
+
+    if opt.ignore:
+        add_ignore(db, opt.pattern)
+        write_db(db, filename)
+        return
+
+    if describe(db, opt.pattern):
+        write_db(db, filename)
+        
+    return
+
+if __name__ == '__main__':
+    main()
