@@ -22,7 +22,10 @@ import argparse
 import csv
 import fnmatch
 import os
-import readline
+try:
+    import readline
+except ImportError:
+    pass
 import sys
 
 from textwrap import wrap
