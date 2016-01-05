@@ -1,12 +1,19 @@
 #!/usr/bin/env python
 """
-file name / pattern
-    long text describing
-    the file(s) (yyyy-mm-dd)
+`readme` is a Python script to maintain / edit a file
+`00_FILE_DESCRIPTIONS.txt` with the following pattern::
+    
+    file name / pattern
+        long text describing
+        the file(s) (yyyy-mm-dd)
+    
+    (no description needed)
+        misc file 1
+        misc file 2
 
-(unimportant / temporary files)
-    misc file 1
-    misc file 2
+`readme` can list undocumented files, show available documentation, etc.
+Non-existant filenames '!' and '~' can be used to create entries at the
+beginning and end of the file.
 
 Terry Brown, Terry_N_Brown@yahoo.com, Tue Nov 26 10:11:15 2013
 """
